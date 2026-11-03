@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Emergency Response Optimizer — Dispatcher Console</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+<style>
+  :root {
+    --bg:#0c1420; --panel:#121c2b; --panel2:#0e1826; --border:#223147; --text:#e7edf5;
+    --muted:#8fa3bf; --accent:#6fb84f; --danger:#e05c5c; --warn:#e0b85c; --info:#5c9ee0;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:'Segoe UI', system-ui, sans-serif; }
+  header {
+    display:flex; align-items:center; justify-content:space-between; padding:12px 20px;
+    border-bottom:1px solid var(--border); background:var(--panel);
+  }
+  header h1 { font-size:16px; margin:0; }
+  header .who { font-size:12px; color:var(--muted); }
+  header button {
+    background:var(--panel2); border:1px solid var(--border); color:var(--text);
+    padding:7px 14px; border-radius:6px; cursor:pointer; font-size:12px;
+  }
+  .layout { display:grid; grid-template-columns: 340px 1fr 340px; height: calc(100vh - 49px); }
+  .col { overflow-y:auto; border-right:1px solid var(--border); padding:16px; }
+  .col:last-child { border-right:none; }
+  #map { height: 100%; }
+  h2 { font-size:12px; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted); margin:0 0 10px; }
+  .stat-grid { display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:18px; }
+  .stat { background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:10px; }
+  .stat .n { font-size:20px; font-weight:700; }
+  .stat .l { font-size:11px; color:var(--muted); }
+  .sev-crit { color: var(--danger); } .sev-moderate { color: var(--warn); } .sev-low { color: var(--info); }
+  form.report { display:flex; flex-direction:column; gap:8px; margin-bottom:20px; }
+  textarea, input.coord {
+    width:100%; background:var(--panel2); border:1px solid var(--border); color:var(--text);
+    border-radius:6px; padding:8px; font-size:13px; font-family:inherit;
+  }
+  textarea { height:70px; resize:vertical; }
+  .coord-row { display:flex; gap:8px; }
+  button.primary {
+    background:var(--accent); color:#07240a; border:none; border-radius:6px;
+    padding:9px; font-weight:600; cursor:pointer; font-size:13px;
+  }
+  .card {
+    background:var(--panel2); border:1px solid var(--border); border-radius:8px;
+    padding:10px; margin-bottom:8px; font-size:12px;
+  }
+  .card .top { display:flex; justify-content:space-between; margin-bottom:4px; }
+  .pill { font-size:10px; padding:2px 7px; border-radius:10px; text-transform:uppercase; font-weight:700; }
+  .pill.critical { background:#3a1414; color:var(--danger); }
+  .pill.moderate { background:#3a2c14; color:var(--warn); }
+  .pill.low { background:#142a3a; color:var(--info); }
+  .status-pending { color:var(--warn); } .status-dispatched { color:var(--info); } .status-resolved { color:var(--accent); }
+  .muted { color:var(--muted); font-size:11px; }
+  .resolve-btn {
+    margin-top:6px; background:none; border:1px solid var(--border); color:var(--muted);
+    padding:4px 8px; border-radius:5px; font-size:11px; cursor:pointer;
+  }
+  .conn { font-size:11px; }
+  .conn.ok { color:var(--accent); } .conn.bad { color:var(--danger); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚑 Emergency Response Optimizer — Dispatcher Console</h1>
+  <div style="display:flex; align-items:center; gap:14px;">
+    <span class="conn" id="connStatus">connecting…</span>
+    <span class="who">Signed in as <b id="whoUser"></b> (<span id="whoRole"></span>)</span>
+    <button onclick="logout()">Log out</button>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="col">
+    <h2>Report an Incident</h2>
+    <form class="report" id="reportForm">
+      <textarea id="transcript" placeholder="Caller transcript, e.g. 'My husband collapsed and isn't breathing...'"></textarea>
+      <div class="coord-row">
+        <input class="coord" id="lat" placeholder="Latitude" value="30.75">
+        <input class="coord" id="lon" placeholder="Longitude" value="76.78">
+      </div>
+      <button class="primary" type="submit">Submit &amp; Auto-Dispatch</button>
+    </form>
+
+    <h2>Live Stats</h2>
+    <div class="stat-grid" id="statGrid">
+      <div class="stat"><div class="n" id="st-total">—</div><div class="l">Total incidents</div></div>
+      <div class="stat"><div class="n" id="st-pending">—</div><div class="l">Pending (no free unit)</div></div>
+      <div class="stat"><div class="n" id="st-dispatched">—</div><div class="l">Dispatched</div></div>
+      <div class="stat"><div class="n" id="st-resolved">—</div><div class="l">Resolved</div></div>
+    </div>
+    <h2>Severity Triage Model</h2>
+    <div id="modelMetrics" class="muted">loading…</div>
+  </div>
+
+  <div style="position:relative; height:100%;">
+    <div id="map"></div>
+    <div style="position:absolute; bottom:20px; left:10px; z-index:1000; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:12px; line-height:1.9;">
+      <div><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#5c9ee0;border:2px solid white;margin-right:6px;"></span>Ambulance unit</div>
+      <div><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#1a8f4c;color:white;text-align:center;font-size:10px;font-weight:800;margin-right:6px;line-height:16px;">H</span>Hospital</div>
+      <div><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#e05c5c;border:2px solid white;margin-right:6px;"></span>Critical incident</div>
+      <div><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#e0b85c;border:2px solid white;margin-right:6px;"></span>Moderate incident</div>
+      <div><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#5c9ee0;border:2px solid white;margin-right:6px;"></span>Low incident</div>
+    </div>
+  </div>
+
+  <div class="col">
+    <h2>Live Incident Feed</h2>
+    <div id="feed"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+const token = localStorage.getItem('ero_token');
+if (!token) window.location.href = '/';
+document.getElementById('whoUser').textContent = localStorage.getItem('ero_user') || '';
+document.getElementById('whoRole').textContent = localStorage.getItem('ero_role') || '';
+
+function logout() {
+  localStorage.removeItem('ero_token');
+  localStorage.removeItem('ero_user');
+  localStorage.removeItem('ero_role');
+  window.location.href = '/';
+}
+
+async function authFetch(url, opts = {}) {
+  opts.headers = Object.assign({}, opts.headers, { 'Authorization': 'Bearer ' + token });
+  const res = await fetch(url, opts);
+  if (res.status === 401) { logout(); throw new Error('unauthorized'); }
+  return res;
+}
+
+// ---------- Map setup ----------
+const map = L.map('map').setView([30.75, 76.78], 12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors', maxZoom: 18,
+}).addTo(map);
+
+const unitIcon = L.divIcon({ className: '', html: '<div style="background:#5c9ee0;width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 0 1px #0c1420;"></div>' });
+const hospitalIcon = L.divIcon({ className: '', html: '<div style="background:#1a8f4c;color:white;width:20px;height:20px;border-radius:4px;border:2px solid white;box-shadow:0 0 0 1px #0c1420;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;font-family:sans-serif;">H</div>', iconSize:[20,20], iconAnchor:[10,10] });
+const incidentIcons = {
+  critical: L.divIcon({ className:'', html:'<div style="background:#e05c5c;width:14px;height:14px;border-radius:50%;border:2px solid white;"></div>' }),
+  moderate: L.divIcon({ className:'', html:'<div style="background:#e0b85c;width:14px;height:14px;border-radius:50%;border:2px solid white;"></div>' }),
+  low: L.divIcon({ className:'', html:'<div style="background:#5c9ee0;width:14px;height:14px;border-radius:50%;border:2px solid white;"></div>' }),
+};
+
+let unitMarkers = {}, hospitalMarkers = {}, incidentMarkers = {};
+
+async function loadUnits() {
+  const res = await authFetch('/api/units');
+  const units = await res.json();
+  units.forEach(u => {
+    if (unitMarkers[u.id]) map.removeLayer(unitMarkers[u.id]);
+    const m = L.marker([u.lat, u.lon], { icon: unitIcon }).addTo(map);
+    m.bindPopup(`<b>${u.name}</b><br>Status: ${u.status}<br>Load: ${u.active_load}`);
+    unitMarkers[u.id] = m;
+  });
+}
+
+async function loadHospitals() {
+  const res = await authFetch('/api/hospitals');
+  const hospitals = await res.json();
+  hospitals.forEach(h => {
+    const m = L.marker([h.lat, h.lon], { icon: hospitalIcon }).addTo(map);
+    m.bindPopup(`<b>${h.name}</b><br>Capacity free: ${(h.capacity_pct*100).toFixed(0)}%`);
+    hospitalMarkers[h.id] = m;
+  });
+}
+
+function addIncidentMarker(inc) {
+  if (incidentMarkers[inc.id]) map.removeLayer(incidentMarkers[inc.id]);
+  const icon = incidentIcons[inc.severity_label] || incidentIcons.low;
+  const m = L.marker([inc.lat, inc.lon], { icon }).addTo(map);
+  m.bindPopup(`<b>#${inc.id}</b> ${inc.severity_label || '?'}<br>${inc.transcript.slice(0,80)}...<br>Status: ${inc.status}`);
+  incidentMarkers[inc.id] = m;
+}
+
+// ---------- Stats ----------
+async function loadStats() {
+  const res = await authFetch('/api/stats');
+  const s = await res.json();
+  document.getElementById('st-total').textContent = s.total_incidents;
+  document.getElementById('st-pending').textContent = s.pending;
+  document.getElementById('st-dispatched').textContent = s.dispatched;
+  document.getElementById('st-resolved').textContent = s.resolved;
+}
+
+async function loadModelMetrics() {
+  const res = await authFetch('/api/model_metrics');
+  const m = await res.json();
+  const xgb = m.xgboost, kw = m.keyword_heuristic;
+  document.getElementById('modelMetrics').innerHTML = `
+    TF-IDF + XGBoost triage model (sandboxed stand-in for DistilBERT):<br>
+    F1 = ${xgb.f1.toFixed(3)}, Accuracy = ${(xgb.accuracy*100).toFixed(1)}%
+    <br><span style="opacity:0.7">vs. naive keyword heuristic: F1 = ${kw.f1.toFixed(3)}</span>
+    <br>Trained on ${m.n_train + m.n_test} synthetic transcripts.
+  `;
+}
+
+// ---------- Incident feed ----------
+function renderFeedItem(inc) {
+  const existing = document.getElementById('inc-' + inc.id);
+  const html = `
+    <div class="top">
+      <span>#${inc.id} <span class="pill ${inc.severity_label || 'low'}">${inc.severity_label || '?'}</span></span>
+      <span class="status-${inc.status}">${inc.status}</span>
+    </div>
+    <div>${inc.transcript.length > 110 ? inc.transcript.slice(0,110)+'…' : inc.transcript}</div>
+    <div class="muted">${new Date(inc.created_at).toLocaleTimeString()}</div>
+    ${inc.status !== 'resolved' ? `<button class="resolve-btn" onclick="resolveIncident(${inc.id})">Mark resolved</button>` : ''}
+  `;
+  if (existing) {
+    existing.innerHTML = html;
+  } else {
+    const div = document.createElement('div');
+    div.className = 'card';
+    div.id = 'inc-' + inc.id;
+    div.innerHTML = html;
+    document.getElementById('feed').prepend(div);
+  }
+}
+
+async function loadIncidents() {
+  const res = await authFetch('/api/incidents');
+  const incidents = await res.json();
+  incidents.slice().reverse().forEach(inc => { renderFeedItem(inc); addIncidentMarker(inc); });
+}
+
+async function resolveIncident(id) {
+  await authFetch(`/api/incidents/${id}/resolve`, { method: 'POST' });
+  loadStats(); loadUnits();
+}
+
+document.getElementById('reportForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const transcript = document.getElementById('transcript').value.trim();
+  const lat = parseFloat(document.getElementById('lat').value);
+  const lon = parseFloat(document.getElementById('lon').value);
+  if (!transcript) return;
+  const res = await fetch('/api/incidents', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ transcript, lat, lon }),
+  });
+  const incident = await res.json();
+  document.getElementById('transcript').value = '';
+
+  // Don't wait for the WebSocket echo — render immediately and fly the map
+  // to the new pin so it's unmistakable where it landed.
+  renderFeedItem(incident);
+  addIncidentMarker(incident);
+  map.flyTo([incident.lat, incident.lon], 15, { duration: 0.8 });
+  incidentMarkers[incident.id].openPopup();
+  loadStats(); loadUnits();
+});
+
+// ---------- WebSocket live updates ----------
+function connectWS() {
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${window.location.host}/ws?token=${token}`);
+  ws.onopen = () => { document.getElementById('connStatus').textContent = '● live'; document.getElementById('connStatus').className = 'conn ok'; };
+  ws.onclose = () => {
+    document.getElementById('connStatus').textContent = '● disconnected — retrying';
+    document.getElementById('connStatus').className = 'conn bad';
+    setTimeout(connectWS, 2000);
+  };
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'incident_update') {
+      renderFeedItem(msg.incident);
+      addIncidentMarker(msg.incident);
+      loadStats(); loadUnits();
+    }
+  };
+}
+
+(async function init() {
+  await loadUnits();
+  await loadHospitals();
+  await loadIncidents();
+  await loadStats();
+  await loadModelMetrics();
+  connectWS();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Emergency Response Optimizer — Login</title>
+<style>
+  :root {
+    --bg:#0c1420; --panel:#121c2b; --border:#223147; --text:#e7edf5; --muted:#8fa3bf;
+    --accent:#6fb84f; --danger:#e05c5c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background: radial-gradient(circle at 30% 20%, #15233a 0%, var(--bg) 60%);
+    font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text);
+  }
+  .card {
+    background: var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:36px 40px; width:360px; box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  }
+  h1 { font-size:19px; margin:0 0 4px; letter-spacing:0.3px; }
+  .sub { color:var(--muted); font-size:13px; margin:0 0 24px; }
+  label { font-size:12px; color:var(--muted); display:block; margin-bottom:6px; }
+  input {
+    width:100%; padding:10px 12px; margin-bottom:16px; border-radius:8px;
+    border:1px solid var(--border); background:#0e1826; color:var(--text); font-size:14px;
+  }
+  input:focus { outline:none; border-color: var(--accent); }
+  button {
+    width:100%; padding:11px; border-radius:8px; border:none; background:var(--accent);
+    color:#07240a; font-weight:600; font-size:14px; cursor:pointer; transition:opacity .15s;
+  }
+  button:hover { opacity:0.9; }
+  #err { color: var(--danger); font-size:13px; margin-top:12px; min-height:16px; }
+  .hint { margin-top:18px; font-size:11px; color:var(--muted); line-height:1.5; border-top:1px solid var(--border); padding-top:14px; }
+  .badge { display:inline-block; background:#1a2b3f; color:var(--accent); font-size:10px; padding:2px 7px; border-radius:4px; margin-right:6px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>🚑 Emergency Response Optimizer</h1>
+    <p class="sub">Dispatcher Console — sign in to continue</p>
+    <form id="loginForm">
+      <label for="username">Username</label>
+      <input id="username" autocomplete="username" value="dispatcher" />
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" value="dispatch123" />
+      <button type="submit">Sign in</button>
+    </form>
+    <div id="err"></div>
+    <div class="hint">
+      <span class="badge">DEMO</span> Prototype accounts: <code>dispatcher / dispatch123</code> or <code>admin / admin123</code>.
+      JWT-based session auth; passwords are bcrypt-hashed server-side.
+    </div>
+  </div>
+
+<script>
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const errBox = document.getElementById('err');
+  errBox.textContent = '';
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      errBox.textContent = body.detail || 'Login failed';
+      return;
+    }
+    const data = await res.json();
+    localStorage.setItem('ero_token', data.access_token);
+    localStorage.setItem('ero_user', data.username);
+    localStorage.setItem('ero_role', data.role);
+    window.location.href = '/dashboard';
+  } catch (err) {
+    errBox.textContent = 'Could not reach server.';
+  }
+});
+</script>
+</body>
+</html>

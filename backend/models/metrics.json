@@ -1,0 +1,21 @@
+{
+  "xgboost": {
+    "precision": 0.7569843616132749,
+    "recall": 0.7383333333333333,
+    "f1": 0.7442748466839978,
+    "accuracy": 0.7383333333333333
+  },
+  "keyword_heuristic": {
+    "precision": 0.6961340902946743,
+    "recall": 0.64,
+    "f1": 0.649761793082596,
+    "accuracy": 0.64
+  },
+  "n_train": 2400,
+  "n_test": 600,
+  "classes": [
+    "critical",
+    "low",
+    "moderate"
+  ]
+}
